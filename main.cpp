@@ -3,9 +3,11 @@
 #include <unordered_map>
 #include <queue>
 #include "huf_sequential.h"
+#include "utimer.cpp"
+#include <cstring>
 
 using namespace std;
-#define SPECIAL_CHAR '$'
+#define SPECIAL_CHAR '$' //non-leaf nodes
 
 class HufNode{
 public:
@@ -30,25 +32,29 @@ class Compare {
     }
 };
 
-void find_occurrences(istream& stream, unordered_map<char,int>& words){
+void find_occurrences(const string &infile_name, unordered_map<char,int>& words){
     char c;
-    while(stream >> c){ // >> extracts single words and puts them in string
+    ifstream infile;
+    infile.open(infile_name);
+    while(infile >> c){ // >> extracts single words and puts them in string
         words[c]++; // [] operator does all the checks for us (if key is already present etc)
     }
+    infile.close();
     return;
 }
 
-void print_map(unordered_map<char,int> &words ){
+template<typename T, typename V>
+void print_map(unordered_map<T,V> &words ){
         cout << "MAP" << endl << endl << endl;
-    for (unordered_map<char,int>::iterator i = words.begin();
+    for (typename unordered_map<T, V>::iterator i = words.begin();
          i != words.end(); i++){
-            cout << i->first << " occurred: " << i->second << "times " << endl;
+            cout << i->first << " " << i->second << " " << endl;
          }
         return;
 }
 
 void print_queue(priority_queue<HufNode*,vector<HufNode*>, Compare> pq){ //we pass pq by value so that pop() doesn't actually delete
-    cout << "QUEUE" << endl << endl << endl;
+    cout << "QUEUE" << endl;
     while (! pq.empty() ) {
     cout << pq.top() << "\n";
     pq.pop();
@@ -63,13 +69,23 @@ void map_to_queue(unordered_map<char,int> words, priority_queue<HufNode*,vector<
     }
 }
 
-void print_tree(HufNode* root, string code){
-    if(root){
-        if(root->character != SPECIAL_CHAR){
-            cout << root->character << ":" << code << endl;
+void print_tree(HufNode* node, string code){
+    if(node){
+        if(node->character != SPECIAL_CHAR){
+            cout << node->character << ":" << code << endl;
         }
-        print_tree(root->left,code + "0");
-        print_tree(root->right,code + "1");
+        print_tree(node->left,code + "0");
+        print_tree(node->right,code + "1");
+    }
+}
+
+void generate_char_to_code_map(unordered_map<char,string> &char_code_map, HufNode* node, string code){
+     if(node){
+         if(node->character != SPECIAL_CHAR){
+            char_code_map[node->character].append(code);
+        }
+        generate_char_to_code_map(char_code_map,node->left,code + "0");
+        generate_char_to_code_map(char_code_map,node->right,code + "1");
     }
 }
 
@@ -90,24 +106,45 @@ HufNode* generateTree(priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
     return pq.top();
 }
 
-int main(int argc, char* argv[]) //aggiungere controllo carattere speciale
+void compress(const string &infile_name, const string &outfile_name){
+    char c;
+    ifstream infile;
+    ofstream outfile;
+    unordered_map<char,int> words;
+    priority_queue<HufNode*,vector<HufNode*>,Compare> pQueue;
+    unordered_map<char,string> char_to_code_map;
+
+    find_occurrences(infile_name,words);
+    map_to_queue(words,pQueue);
+    //print_queue(pQueue);
+    HufNode* huffmanTree = generateTree(pQueue);
+    //print_tree(huffmanTree,"");
+    generate_char_to_code_map(char_to_code_map, huffmanTree, "");
+    //print_map(char_to_code_map);
+    infile.open(infile_name);
+    outfile.open(outfile_name);
+
+    while(infile >> c){
+        outfile.write(reinterpret_cast<const char*>(&char_to_code_map[c]), sizeof(char_to_code_map[c]));
+    }
+    infile.close();
+    outfile.close();
+}
+int main(int argc, char* argv[])
+/*
+aggiungere controllo carattere speciale
+*/
 {
-    cout << argc << endl;
     if (argc < 2){
+        cout << "Please provide arguments! ";
         return EXIT_FAILURE;
     }
-     ifstream file(argv[1]);
-     if (!file){
-         exit(EXIT_FAILURE);
+    string infile_name = (argv[1]);
+    string outfile_name = (argv[2]);
+    {
+        utimer t0("prova");
+        compress(infile_name, outfile_name);
     }
-    unordered_map<char,int> words;
-    find_occurrences(file,words);
-    print_map(words);
-    priority_queue<HufNode*,vector<HufNode*>,Compare> pQueue;
-    map_to_queue(words,pQueue);
-    print_queue(pQueue);
-    HufNode* huffmanTree = generateTree(pQueue);
-    print_tree(huffmanTree,"");
 
     return 0;
 }
