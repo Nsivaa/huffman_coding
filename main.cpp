@@ -125,7 +125,7 @@ void compress(const string &infile_name, const string &outfile_name){
     outfile.open(outfile_name);
 
     while(infile >> c){
-        outfile.write(reinterpret_cast<const char*>(&char_to_code_map[c]), sizeof(char_to_code_map[c]));
+        outfile << (char_to_code_map[c]);
     }
     infile.close();
     outfile.close();
