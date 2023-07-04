@@ -45,14 +45,13 @@ void merge_maps(OccurrenceMap &final, vector<OccurrenceMap*> maps){
 	char c;
 	int v;
 	cout << "merging maps" << endl;
- 	/*for(int m=0; m<maps.size(); m++){
-		for(auto i = maps[m]->beginIterator(); i!=maps[m]->endIterator();i++){
-			c = maps[m]->getKey(i);
-			v = maps[m]->getValue(i);
-			final->updateValue(c,v);
-
+ 	for(auto &m : maps){
+		for(auto i = m->beginIterator(); i != m->endIterator();i++){
+			c = m->getKey(i);
+			v = m->getValue(i);
+			final.updateValue(c,v);
 		}
-	}*/
+	}
 
 	}
 
@@ -62,13 +61,20 @@ int occurrences_work(const string& infile_name, OccurrenceMap& local_map, int fr
 	infile.open(infile_name);
 	int i= from;
 	infile.seekg(from,ios::beg);
-	while(i<to && infile >> c){
+	while(i<to){
+		infile.get(c);
+		if(infile.eof()) break;
 		local_map.insert(c);
-		//cout << "c: " << c << endl;
-		//cout <<"i:" << i <<endl;
+		{
+		unique_lock<mutex> lock(mut);
+		cout << "c: " << c <<" i:" << i <<endl;
+		}
 		i++;
 		}
+	{
+	unique_lock<mutex> lock(mut);
 	print_map(local_map);
+	}
 	infile.close();
 	return 1;
 	}
@@ -101,7 +107,7 @@ void find_occurrences(const string &infile_name,vector <OccurrenceMap*> &maps, O
 	}
 	
 	
-	//PRINT MAPS
+	/*PRINT MAPS
 	string mapfile;
 	int ind =0;
 	for (auto &i : maps){
@@ -114,9 +120,11 @@ void find_occurrences(const string &infile_name,vector <OccurrenceMap*> &maps, O
 	file.open(mapfile);
 	i->toFile(file);
 	file.close();
-	}
+	}*/
 
 	merge_maps(words,maps);
+	cout << "FINAL MAP" << endl;
+	print_map(words);
 	return;
 }
 
