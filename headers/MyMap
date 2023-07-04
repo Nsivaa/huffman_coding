@@ -1,0 +1,52 @@
+#ifndef MYMAP
+#define MYMAP
+
+#include <unordered_map>
+#include <iostream>
+#include <mutex>
+#include <condition_variable>
+
+using iterator = typename std::unordered_map<char,int>::iterator;
+
+class OccurrenceMap{
+
+private: 
+
+	std::mutex m;
+	std::condition_variable cv;
+	std::unordered:map<char,int> wrapped_map; 
+
+public:
+
+	MyMap() {}
+
+	~MyMap() {}
+
+	void insert(char const& data){
+		
+		{
+		std::unique_lock<std::mutex> lock(m);
+		wrapped_map[data]++;
+		}
+
+	cv.notify_one();
+	}
+	
+	iterator beginIterator(){
+		return wrapped_map.begin();
+	}
+
+	iterator endIterator(){
+		return wrapped_map.end();
+	}
+
+	char getKey(iterator i){
+		return i->first;
+	}
+	
+	int getValue(iterator i){
+		return i->second;
+	}
+}
+
+#endif

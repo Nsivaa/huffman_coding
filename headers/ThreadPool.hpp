@@ -1,0 +1,119 @@
+#ifndef THREADPOOL_H_INCLUDED
+#define THREADPOOL_H_INCLUDED
+#include <iostream>
+#include <thread>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
+#include <functional>
+#include <future>
+using namespace std;
+
+
+class ThreadPool{
+public:
+   void start(int n){
+      int nw;
+      if (n>0) {
+	   nw=n;
+	   cout << "started " << n << " number of threads" << endl;
+      }
+      else{
+ 	nw  = thread::hardware_concurrency(); //if called without parameter, we use the max n_threads available
+	cout << "Started " << nw << " number of threads (maximum)" << endl;
+	  }
+      for (int i=0; i<nw; i++){
+   	threads.push_back(std::thread([this]{this->loop();}));//every thread in the vector starts looping
+   	cout << "thread n. " << i << " started" << endl;
+       }
+   }
+   void stop(){ //waits for all the threads to finish
+	{
+	unique_lock<mutex> lock(m);
+	terminate = true;
+	}
+	cv.notify_all();
+	for(thread& running_thread : threads){
+	    running_thread.join();
+	}
+	threads.clear();
+   };
+   int getWorkersNumber(){
+		return threads.size();
+	};
+
+   bool busy(){ //tells us if the queue still contains tasks
+	bool busy;
+    {
+	unique_lock<mutex> lock(m);
+	busy = jobs.empty();
+	}
+      return busy;
+   };
+  
+    std::queue<std::function<void()>> jobs;
+
+	template<class TaskT>
+    auto addJob(TaskT task) -> std::future<decltype(task())>{
+    /**
+    * Infer the return type of the task function. Get a reference to the future value returned by the function
+    *
+    */
+    using ReturnT = decltype(task());
+    auto promise = std::make_shared<std::promise<ReturnT>>();
+    auto result = promise->get_future();
+
+    // Create the task using the return type and the given function, then execute it
+    auto t = [p= std::move(promise), t = std::move(task)] () mutable {execute(*p,t); };
+
+    // Enqueue the given task into the corresponding thread queue and notify the thread
+    {
+        std::lock_guard<std::mutex> lock(m);
+        jobs.push(std::move(t));
+    }
+
+    cv.notify_one();
+
+    return result;
+  }
+   private:
+   void loop(){
+  while(true){
+      std::function<void()> job;
+      {
+         std::unique_lock<std::mutex> lock(m);
+         cv.wait(lock, [this] {// defining the stop condition of the condition variable
+         return !jobs.empty() || terminate;
+      });
+      if (terminate) {return;};
+      job = jobs.front(); //fetch a task from the queue
+      jobs.pop();
+	  }
+	cout << "executing " << endl;
+   job(); //execute the task
+	cout << "execution finished " << endl;
+   }
+ }
+template<class ResultT, class TaskT>
+        static void execute(std::promise<ResultT>& p, TaskT& task) {
+            p.set_value(task()); 
+        }
+
+   std::vector<std::thread> threads;
+   std::condition_variable cv;
+   std::mutex m;
+   bool terminate = false;
+};
+
+
+   /*void ThreadPool::addJob(function<void()> &job){
+	{
+         unique_lock<mutex> lock(m);
+         jobs.push(job);
+	}
+      cv.notify_one();
+   }*/
+
+
+
+#endif
