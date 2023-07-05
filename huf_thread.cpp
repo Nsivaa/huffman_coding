@@ -7,6 +7,7 @@
 #include "utils.hpp"
 #include "OccurrenceMap.hpp"
 #include "CodeMap.hpp"
+#include "MapQueue.hpp"
 #include <chrono>
 #include <future>
 
@@ -16,44 +17,53 @@ vector<future<int>> int_futures;
 vector<future<int>> map_futures;
 ThreadPool *thread_pool = new ThreadPool();
 mutex mut;
+atomic<int> toCompute=1;
 
-/*
-int file_read_work(const string& infile_name){
-	ifstream infile;
-	infile.open(infile_name);
-	vector<char> buffer (BUF
-SIZE,0);
-	int i=0;
-	while(!infile.eof()){
-		infile.read(buffer.data(),BUFSIZE);
-		cout << "prepared buf n " << i << endl;
-		i++;
-		OccurrenceMap *thread_map = new OccurrenceMap();
-		auto f = thread_pool->addJob([thread_map,buffer]()-> OccurrenceMap& {return occurrences_work(std::ref(*thread_map),std::ref(buffer));});
-		{
-			unique_lock<mutex> lock(mut);
-			map_futures.push_back(std::move(f));
+int merge_maps_work(mutex &m, MapQueue &maps){
+	OccurrenceMap *submap1, *submap2;
+	while(toCompute<1){
+		submap1 = maps.front();
+		maps.pop();
+		submap2 = maps.front();
+		maps.pop();
+		for(auto i = submap1->beginIterator(); i != submap1->endIterator();i++){
+			submap2->updateValue(submap1->getKey(i), submap1->getValue(i));
 		}
+		toCompute--;
+		maps.push(submap2);
+		cout << "to compute: " << toCompute << endl;
 	}
-	infile.close();
-	cout <<"file closed" << endl;
 	return 1;
-	}
-*/
+}
 
-void merge_maps(OccurrenceMap &final, vector<OccurrenceMap*> maps){
-	char c;
-	int v;
-	cout << "merging maps" << endl;
- 	for(auto &m : maps){
-		for(auto i = m->beginIterator(); i != m->endIterator();i++){
-			c = m->getKey(i);
-			v = m->getValue(i);
-			final.updateValue(c,v);
+void merge_maps(OccurrenceMap &final, MapQueue& maps){
+	int nw = thread_pool->getWorkersNumber();
+	int n=nw/2;
+	mutex m;
+	while(n>1){
+		toCompute+=n;
+		n=n/2;
+	}
+	vector<future<int>> futures;
+	for(int k=0; k < (nw/2); k++){
+		auto f = thread_pool->addJob([&m,&maps] () -> int {return merge_maps_work(m,maps);});
+		futures.push_back(std::move(f));
+	}
+	for(auto &f : futures){
+			auto v = f.get();
 		}
+	//compute reduction sequentially over remaining maps
+	while(!maps.empty()){
+		auto m = maps.front();
+		for (auto i = m->beginIterator(); i != m->endIterator(); i++){
+			final.updateValue(m->getKey(i), m->getValue(i));
+		}
+		maps.pop();
 	}
-
-	}
+	cout << "maps merged" << endl;
+	//cout << "FINAL: " << endl;
+	//print_map(final);
+}
 
 int occurrences_work(const string& infile_name, OccurrenceMap& local_map, int from, int to){
 	char c;
@@ -67,32 +77,32 @@ int occurrences_work(const string& infile_name, OccurrenceMap& local_map, int fr
 		local_map.insert(c);
 		{
 		unique_lock<mutex> lock(mut);
-		cout << "c: " << c <<" i:" << i <<endl;
+		//cout << "c: " << c <<" i:" << i <<endl;
 		}
 		i++;
 		}
 	{
 	unique_lock<mutex> lock(mut);
-	print_map(local_map);
+	//print_map(local_map);
 	}
 	infile.close();
 	return 1;
 	}
 
-void find_occurrences(const string &infile_name,vector <OccurrenceMap*> &maps, OccurrenceMap &words){
+void find_occurrences(const string &infile_name,MapQueue &maps, OccurrenceMap &words){
 //master worker computes file chunks according to size and assigns work to workers
     auto size = std::filesystem::file_size(infile_name);
 	int nw = thread_pool->getWorkersNumber();
-	cout << "size: " << size << endl;
+	//cout << "size: " << size << endl;
 	int delta = size/nw;
-	cout << "delta: " << delta << endl;
+	//cout << "delta: " << delta << endl;
 	for (int k=0; k<nw;k++){
 		int from = k*delta;
 		int to = (k == (nw-1) ? size : (k+1)*delta);
-		cout << "from: " << from << endl;
-		cout << "to: " << to << endl;
+		//cout << "from: " << from << endl;
+		//cout << "to: " << to << endl;
 		OccurrenceMap *thread_map = new OccurrenceMap();
-		maps.push_back(thread_map);
+		maps.push(thread_map);
 		auto f = thread_pool->addJob([&,thread_map,from,to]()-> int {
 			 return occurrences_work(std::ref(infile_name),std::ref(*thread_map),std::move(from), std::move(to));
 			});
@@ -103,28 +113,11 @@ void find_occurrences(const string &infile_name,vector <OccurrenceMap*> &maps, O
 	}
 	for (auto &f : int_futures){
 		int val = f.get();
-		cout <<"val:" << val << endl;
 	}
-	
-	
-	/*PRINT MAPS
-	string mapfile;
-	int ind =0;
-	for (auto &i : maps){
-	mapfile = ("print");
-	mapfile.append(to_string(ind));
-	mapfile.append(".txt");
-	ind++;
-	cout << "ind:" << ind << endl;
-	ofstream file;
-	file.open(mapfile);
-	i->toFile(file);
-	file.close();
-	}*/
-
+	{
+	utimer t3("Maps merge");
 	merge_maps(words,maps);
-	cout << "FINAL MAP" << endl;
-	print_map(words);
+	}
 	return;
 }
 
@@ -170,21 +163,19 @@ void compress(const string &infile_name, const string &outfile_name){
     ofstream outfile;
     priority_queue<HufNode*,vector<HufNode*>,Compare> pQueue;
     CodeMap *char_to_code_map = new CodeMap();
-	vector<OccurrenceMap*> maps;
+	MapQueue maps;
 	OccurrenceMap *words =  new OccurrenceMap();
 	
 	{
-	utimer t1("conta occorrenze");
-    find_occurrences(infile_name,maps,*words);
+		utimer t1("conta occorrenze");
+    	find_occurrences(infile_name,maps,*words);
 
-	}
 	//WAIT FOR THREADS TO FINISH
-		
-	for (auto &f : map_futures){
-		auto val = f.get();
+
+		for (auto &f : map_futures){
+			auto val = f.get();
+		}
 	}
-	cout << "Maps size:" << maps.size() << endl;
-	//merge_maps(*words,maps);
 	string outname = to_string(thread_pool->getWorkersNumber());
 	outname.append("map.txt");
 	ofstream out_map_file;
@@ -205,6 +196,31 @@ void compress(const string &infile_name, const string &outfile_name){
     infile.close();
     outfile.close();
 }
+
+
+
+/*
+int file_read_work(const string& infile_name){
+	ifstream infile;
+	infile.open(infile_name);
+	vector<char> buffer (BUFSIZE,0);
+	int i=0;
+	while(!infile.eof()){
+		infile.read(buffer.data(),BUFSIZE);
+		cout << "prepared buf n " << i << endl;
+		i++;
+		OccurrenceMap *thread_map = new OccurrenceMap();
+		auto f = thread_pool->addJob([thread_map,buffer]()-> OccurrenceMap& {return occurrences_work(std::ref(*thread_map),std::ref(buffer));});
+		{
+			unique_lock<mutex> lock(mut);
+			map_futures.push_back(std::move(f));
+		}
+	}
+	infile.close();
+	cout <<"file closed" << endl;
+	return 1;
+	}
+*/
 
 int main(int argc, char* argv[])
 /*

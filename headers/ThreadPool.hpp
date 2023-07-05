@@ -16,15 +16,15 @@ public:
       int nw;
       if (n>0) {
 	   nw=n;
-	   cout << "started " << n << " number of threads" << endl;
+	   cout << "starting " << n << " number of threads" << endl;
       }
       else{
  	nw  = thread::hardware_concurrency(); //if called without parameter, we use the max n_threads available
-	cout << "Started " << nw << " number of threads (maximum)" << endl;
+	cout << "Starting " << nw << " number of threads (maximum)" << endl;
 	  }
       for (int i=0; i<nw; i++){
    	threads.push_back(std::thread([this]{this->loop();}));//every thread in the vector starts looping
-   	cout << "thread n. " << i << " started" << endl;
+   //	cout << "thread n. " << i << " started" << endl;
        }
    }
    void stop(){ //waits for all the threads to finish
@@ -89,9 +89,9 @@ public:
       job = jobs.front(); //fetch a task from the queue
       jobs.pop();
 	  }
-	cout << "executing " << endl;
-   job(); //execute the task
-	cout << "execution finished " << endl;
+	//cout << "executing " << endl;
+    job(); //execute the task
+	//cout << "execution finished " << endl;
    }
  }
 template<class ResultT, class TaskT>

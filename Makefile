@@ -1,5 +1,5 @@
-DNDFLAGS= -pthread -O0 -Wall -g -I ./headers -std=c++17 -lstdc++
-DFLAGS= -pthread -O0 -Wall -g -I ./headers -std=c++17 -lstdc++
+DNDFLAGS= -pthread -O3 -Wall -g -I ./headers -std=c++17 -lstdc++
+DFLAGS= -pthread -O3 -Wall -g -I ./headers -std=c++17 -lstdc++
 
 DEBUG?= 1
 ifeq (($DEBUG), 1)
