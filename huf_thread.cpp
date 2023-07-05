@@ -91,6 +91,9 @@ int occurrences_work(const string& infile_name, OccurrenceMap& local_map, int fr
 
 void find_occurrences(const string &infile_name,MapQueue &maps, OccurrenceMap &words){
 //master worker computes file chunks according to size and assigns work to workers
+	{
+		utimer t1("conta occorrenze");
+    	
     auto size = std::filesystem::file_size(infile_name);
 	int nw = thread_pool->getWorkersNumber();
 	//cout << "size: " << size << endl;
@@ -113,6 +116,7 @@ void find_occurrences(const string &infile_name,MapQueue &maps, OccurrenceMap &w
 	}
 	for (auto &f : int_futures){
 		int val = f.get();
+	}
 	}
 	{
 	utimer t3("Maps merge");
@@ -166,16 +170,13 @@ void compress(const string &infile_name, const string &outfile_name){
 	MapQueue maps;
 	OccurrenceMap *words =  new OccurrenceMap();
 	
-	{
-		utimer t1("conta occorrenze");
-    	find_occurrences(infile_name,maps,*words);
+	find_occurrences(infile_name,maps,*words);
 
 	//WAIT FOR THREADS TO FINISH
 
 		for (auto &f : map_futures){
 			auto val = f.get();
 		}
-	}
 	string outname = to_string(thread_pool->getWorkersNumber());
 	outname.append("map.txt");
 	ofstream out_map_file;
