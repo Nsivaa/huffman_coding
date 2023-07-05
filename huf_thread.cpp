@@ -13,10 +13,8 @@
 
 using namespace std;
 
-vector<future<int>> int_futures;
-vector<future<int>> map_futures;
+
 ThreadPool *thread_pool = new ThreadPool();
-mutex mut;
 atomic<int> toCompute=1;
 
 int merge_maps_work(mutex &m, MapQueue &maps){
@@ -75,16 +73,8 @@ int occurrences_work(const string& infile_name, OccurrenceMap& local_map, int fr
 		infile.get(c);
 		if(infile.eof()) break;
 		local_map.insert(c);
-		{
-		unique_lock<mutex> lock(mut);
-		//cout << "c: " << c <<" i:" << i <<endl;
-		}
 		i++;
 		}
-	{
-	unique_lock<mutex> lock(mut);
-	//print_map(local_map);
-	}
 	infile.close();
 	return 1;
 	}
@@ -92,12 +82,12 @@ int occurrences_work(const string& infile_name, OccurrenceMap& local_map, int fr
 void find_occurrences(const string &infile_name,MapQueue &maps, OccurrenceMap &words){
 //master worker computes file chunks according to size and assigns work to workers
 	{
-		utimer t1("conta occorrenze");
-    	
+	utimer t1("conta occorrenze");
     auto size = std::filesystem::file_size(infile_name);
 	int nw = thread_pool->getWorkersNumber();
 	//cout << "size: " << size << endl;
 	int delta = size/nw;
+	vector<future<int>> int_futures;
 	//cout << "delta: " << delta << endl;
 	for (int k=0; k<nw;k++){
 		int from = k*delta;
@@ -109,10 +99,7 @@ void find_occurrences(const string &infile_name,MapQueue &maps, OccurrenceMap &w
 		auto f = thread_pool->addJob([&,thread_map,from,to]()-> int {
 			 return occurrences_work(std::ref(infile_name),std::ref(*thread_map),std::move(from), std::move(to));
 			});
-		{
-			unique_lock<mutex> lock(mut);
 			int_futures.push_back(std::move(f));
-		}
 	}
 	for (auto &f : int_futures){
 		int val = f.get();
@@ -164,24 +151,13 @@ HufNode* generateTree(priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
 void compress(const string &infile_name, const string &outfile_name){
     char c;
     ifstream infile;
-    ofstream outfile;
+	ofstream outfile;
     priority_queue<HufNode*,vector<HufNode*>,Compare> pQueue;
     CodeMap *char_to_code_map = new CodeMap();
 	MapQueue maps;
 	OccurrenceMap *words =  new OccurrenceMap();
-	
 	find_occurrences(infile_name,maps,*words);
-
 	//WAIT FOR THREADS TO FINISH
-
-		for (auto &f : map_futures){
-			auto val = f.get();
-		}
-	string outname = to_string(thread_pool->getWorkersNumber());
-	outname.append("map.txt");
-	ofstream out_map_file;
-	out_map_file.open(outname);
-	words->toFile(out_map_file);
 	map_to_queue(*words,pQueue);
     //print_queue(pQueue);
     HufNode* huffmanTree = generateTree(pQueue);
@@ -197,31 +173,6 @@ void compress(const string &infile_name, const string &outfile_name){
     infile.close();
     outfile.close();
 }
-
-
-
-/*
-int file_read_work(const string& infile_name){
-	ifstream infile;
-	infile.open(infile_name);
-	vector<char> buffer (BUFSIZE,0);
-	int i=0;
-	while(!infile.eof()){
-		infile.read(buffer.data(),BUFSIZE);
-		cout << "prepared buf n " << i << endl;
-		i++;
-		OccurrenceMap *thread_map = new OccurrenceMap();
-		auto f = thread_pool->addJob([thread_map,buffer]()-> OccurrenceMap& {return occurrences_work(std::ref(*thread_map),std::ref(buffer));});
-		{
-			unique_lock<mutex> lock(mut);
-			map_futures.push_back(std::move(f));
-		}
-	}
-	infile.close();
-	cout <<"file closed" << endl;
-	return 1;
-	}
-*/
 
 int main(int argc, char* argv[])
 /*
