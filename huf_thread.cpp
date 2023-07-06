@@ -10,8 +10,8 @@
 #include "MapQueue.hpp"
 #include <future>
 
-#define BUFSIZE 4096
-#define EOS '\0'
+#define BUFSIZE 512
+#define EOS '$'
 
 using namespace std;
 
@@ -147,77 +147,86 @@ HufNode* generateTree(priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
     return pq.top();
 }
 
-int bytes_to_bits(queue<vector<char>> &bytesQueue, mutex &mut, condition_variable &cond, bool &terminated){
+int bytes_to_bits(queue<vector<string>> &bytesQueue, mutex &mut, condition_variable &cond, bool &terminated){
 	
 }
 
-int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_variable &cv, bool &finished, CodeMap& codeMap){
+int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_variable &cv, CodeMap& codeMap){
 	char c;
 	queue<vector<char>> out_bufferQueue;
-	vector<char> out_buffer (BUFSIZE, 0);
+	vector<string> out_buffer;
 	vector<char> in_buffer;
-	int i =0;
-	mutex m;
-	condition_variable cv;
-	bool terminated=false;
+	//int i=0;
+
+	//to be sent to next pipeline stage
+	mutex mutex_next;
+	condition_variable cv_next; 
+
 	future<int> fut;
+	
 	while (true){
 		{
+			cout << "waiting..." << endl;
 			unique_lock<mutex> lock(m);
-			cv.wait(lock, [this] {return !bufferQueue->empty() || finished;});
-			in_buffer = in_bufferQueue->front();
-			in_bufferQueue->pop();
+			cv.wait(lock, [&,in_bufferQueue] {return !in_bufferQueue.empty();}); 
+			cout << "done waiting" << endl;
+			in_buffer = in_bufferQueue.front();
+			in_bufferQueue.pop();
 		}
 		for (auto &b : in_buffer){
 		c = b;
 		if(c==EOS){
-			auto f = fut.get(); //wait for next thread(s) to finish
+//			auto f = fut.get(); //wait for next thread(s) to finish
+			cout << "EOS received" << endl;
 			return 1;			//exit to main thread
 		}
-		out_buffer.push_back(codeMap->getValue(c));
+		out_buffer.push_back(codeMap.getCode(c));
 		}
 	}
-	return; //never reached because of while(true)
+	return -1; //never reached because of while(true)
 }
 
 void encode_to_file(const string& infile_name, const string &outfile_name, CodeMap& codeMap){
 	queue<vector<char>> bufferQueue;
-	vector<char> buffer (BUFSIZE,0);
+	vector<char> buffer;
 	char c;
 	int i=0;
-	long f=0;
+	long unsigned int f=0;
 	mutex m;
 	condition_variable cv;
-	bool finished=false;
-	auto file_size = filesystem::filesize(infile_name);
+	auto filesize = filesystem::file_size(infile_name);
+
 	ifstream infile;
 	infile.open(infile_name);
-	future<int> fut = thread_pool->addJob( [&bufferQueue,&m, &cv, codeMap] () -> int {return buffers_to_codes(std::ref(bufferQueue),m,cv,std::ref(codeMap));});
-	for(f=0; f<file_size; f++){
+	future<int> fut = thread_pool->addJob( [&bufferQueue,&m, &cv, &codeMap] () -> int {return buffers_to_codes(std::ref(bufferQueue),m,cv,codeMap);});
+	while(f<filesize){
 		i=0;
-		finished=false;
-		while(infile.get(c) && i<BUFSIZE){
-			buffer.push_back(c);
-			i++;
+		while(i<BUFSIZE){
+			if(infile.get(c)){
+				buffer.push_back(c);
+				i++;
+			}
+			else{
+				buffer.push_back(EOS);//send EOS
+				cout << "EOS sent" << endl;
+				bufferQueue.push(buffer);
+				auto v = fut.get();
+				return;
+			}
 		}
+	f+=i;
 	{
 		lock_guard<mutex> lock(m);
 		bufferQueue.push(buffer);
-		finished=true;
+		cout << "bufferQueue size:" << bufferQueue.size() << endl;
 	}
 	cv.notify_one();
+	//cout << "notified" << endl;
 	buffer.clear();
 	}
-	buffer.push_back(EOS);//send EOS
-	bufferQueue.push(buffer);
-	auto v = fut.get();
-	return;
 }
 
 void compress(const string &infile_name, const string &outfile_name){
-    char c;
-    ifstream infile;
-	ofstream outfile;
     priority_queue<HufNode*,vector<HufNode*>,Compare> pQueue;
     CodeMap *char_to_code_map = new CodeMap();
 	MapQueue maps;
@@ -243,18 +252,14 @@ void compress(const string &infile_name, const string &outfile_name){
     }
 
 	//print_map(*char_to_code_map);
-    infile.open(infile_name);
-    outfile.open(outfile_name);
 
 	{
 	utimer t8("print to file");
-    while(infile >> c){
+  /*  while(infile >> c){
         outfile << (char_to_code_map->getCode(c));
-    }
+    }*/
+	encode_to_file(infile_name,outfile_name,*char_to_code_map);
 	}
-
-    infile.close();
-    outfile.close();
 }
 
 int main(int argc, char* argv[])
