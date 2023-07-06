@@ -8,11 +8,12 @@
 #include "OccurrenceMap.hpp"
 #include "CodeMap.hpp"
 #include "MapQueue.hpp"
-#include <chrono>
 #include <future>
 
-using namespace std;
+#define BUFSIZE 4096
+#define EOS '\0'
 
+using namespace std;
 
 ThreadPool *thread_pool = new ThreadPool();
 atomic<int> toCompute=1;
@@ -60,7 +61,7 @@ void merge_maps(OccurrenceMap &final, MapQueue& maps){
 	}
 	cout << "maps merged" << endl;
 	//cout << "FINAL: " << endl;
-	//print_map(final);
+	print_map(final);
 }
 
 int occurrences_work(const string& infile_name, OccurrenceMap& local_map, int from, int to){
@@ -69,9 +70,7 @@ int occurrences_work(const string& infile_name, OccurrenceMap& local_map, int fr
 	infile.open(infile_name);
 	int i= from;
 	infile.seekg(from,ios::beg);
-	while(i<to){
-		infile.get(c);
-		if(infile.eof()) break;
+	while(i<to && infile.get(c)){
 		local_map.insert(c);
 		i++;
 		}
@@ -148,6 +147,73 @@ HufNode* generateTree(priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
     return pq.top();
 }
 
+int bytes_to_bits(queue<vector<char>> &bytesQueue, mutex &mut, condition_variable &cond, bool &terminated){
+	
+}
+
+int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_variable &cv, bool &finished, CodeMap& codeMap){
+	char c;
+	queue<vector<char>> out_bufferQueue;
+	vector<char> out_buffer (BUFSIZE, 0);
+	vector<char> in_buffer;
+	int i =0;
+	mutex m;
+	condition_variable cv;
+	bool terminated=false;
+	future<int> fut;
+	while (true){
+		{
+			unique_lock<mutex> lock(m);
+			cv.wait(lock, [this] {return !bufferQueue->empty() || finished;});
+			in_buffer = in_bufferQueue->front();
+			in_bufferQueue->pop();
+		}
+		for (auto &b : in_buffer){
+		c = b;
+		if(c==EOS){
+			auto f = fut.get(); //wait for next thread(s) to finish
+			return 1;			//exit to main thread
+		}
+		out_buffer.push_back(codeMap->getValue(c));
+		}
+	}
+	return; //never reached because of while(true)
+}
+
+void encode_to_file(const string& infile_name, const string &outfile_name, CodeMap& codeMap){
+	queue<vector<char>> bufferQueue;
+	vector<char> buffer (BUFSIZE,0);
+	char c;
+	int i=0;
+	long f=0;
+	mutex m;
+	condition_variable cv;
+	bool finished=false;
+	auto file_size = filesystem::filesize(infile_name);
+	ifstream infile;
+	infile.open(infile_name);
+	future<int> fut = thread_pool->addJob( [&bufferQueue,&m, &cv, codeMap] () -> int {return buffers_to_codes(std::ref(bufferQueue),m,cv,std::ref(codeMap));});
+	for(f=0; f<file_size; f++){
+		i=0;
+		finished=false;
+		while(infile.get(c) && i<BUFSIZE){
+			buffer.push_back(c);
+			i++;
+		}
+	{
+		lock_guard<mutex> lock(m);
+		bufferQueue.push(buffer);
+		finished=true;
+	}
+	cv.notify_one();
+	buffer.clear();
+	}
+	buffer.push_back(EOS);//send EOS
+	bufferQueue.push(buffer);
+	auto v = fut.get();
+	return;
+}
+
 void compress(const string &infile_name, const string &outfile_name){
     char c;
     ifstream infile;
@@ -157,19 +223,36 @@ void compress(const string &infile_name, const string &outfile_name){
 	MapQueue maps;
 	OccurrenceMap *words =  new OccurrenceMap();
 	find_occurrences(infile_name,maps,*words);
-	//WAIT FOR THREADS TO FINISH
+	HufNode* huffmanTree;
+	{
+		utimer t5("map to queue ");
 	map_to_queue(*words,pQueue);
-    //print_queue(pQueue);
-    HufNode* huffmanTree = generateTree(pQueue);
-    //print_tree(huffmanTree,"");
+	}
+
+   
+   // print_queue(pQueue);
+	{
+	utimer t6("generate tree");
+    huffmanTree = generateTree(pQueue);
+    }
+
+	//print_tree(huffmanTree,"");
+	{
+	utimer t7("generate char to code");
     generate_char_to_code_map(*char_to_code_map, huffmanTree, "");
-    //print_map(char_to_code_map);
+    }
+
+	//print_map(*char_to_code_map);
     infile.open(infile_name);
     outfile.open(outfile_name);
 
+	{
+	utimer t8("print to file");
     while(infile >> c){
         outfile << (char_to_code_map->getCode(c));
     }
+	}
+
     infile.close();
     outfile.close();
 }
@@ -184,14 +267,9 @@ aggiungere controllo carattere speciale
         return EXIT_FAILURE;
     }
     int nw = (argc > 3 ? atoi(argv[3]) : 0);   // par degree
-
-    {
-	utimer t1("thread spawning");
 	thread_pool->start(nw);
-    }
     string infile_name = (argv[1]);
     string outfile_name = (argv[2]);
-
     {
         utimer t0("whole program");
         compress(infile_name, outfile_name);
