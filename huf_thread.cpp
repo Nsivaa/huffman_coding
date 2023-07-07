@@ -141,23 +141,63 @@ HufNode* generateTree(priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
     return pq.top();
 }
 
-int bytes_to_bits(queue<vector<string>> &bytesQueue, mutex &mut, condition_variable &cond, bool &terminated){
-	
+int bytes_to_bits(queue<string> &bytesQueue, mutex &m, condition_variable &cv, const string &outfile_name){
+	uint64_t bits = 0;
+	ofstream outfile;
+	outfile.open(outfile_name, ios::binary);
+	string byte_str;
+	int i=0;
+	{
+		unique_lock<mutex> lock(m);
+		cv.wait(lock, [&] {return !bytesQueue.empty();});
+		byte_str = bytesQueue.front();
+		bytesQueue.pop();
+	}
+	auto iter = byte_str.begin();
+	while(true){
+		while (i < 64 && iter != byte_str.end()){
+
+			if( *iter == '1' ) bits |= 1 << (63-i);
+
+			else if (*iter == EOS) {
+				cout << "Final EOS received" << endl;
+				outfile.write(reinterpret_cast<const char *>(&bits), sizeof(bits));
+				outfile.close();
+				return 1;
+			}
+		i++;
+		iter++;
+		}
+		if (iter == byte_str.end()){
+			{
+				unique_lock<mutex> lock(m);
+				cv.wait(lock, [&] {return !bytesQueue.empty();});
+				byte_str = bytesQueue.front();
+				bytesQueue.pop();
+			}
+		}
+		if (i == 8){
+		outfile.write(reinterpret_cast<const char *>(&bits), sizeof(bits));
+		bits=0;
+		i=0;
+		}
+	}
+	outfile.close();
+	return -1; //never reached
 }
 
-int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_variable &cv, CodeMap& codeMap){
+int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_variable &cv, CodeMap& codeMap, const string &outfile_name){
 	char c;
-	queue<vector<char>> out_bufferQueue;
-	vector<string> out_buffer;
+	queue<string> out_bufferQueue;
+	string out_buffer;
 	vector<char> in_buffer;
-	//int i=0;
 
 	//to be sent to next pipeline stage
 	mutex mutex_next;
 	condition_variable cv_next; 
 
 	future<int> fut;
-	
+	fut = thread_pool->addJob( [&out_bufferQueue,&m,&cv,&outfile_name] () -> int {return bytes_to_bits(std::ref(out_bufferQueue), m, cv, std::ref(outfile_name));});
 	while (true){
 		{
 			unique_lock<mutex> lock(m);
@@ -168,12 +208,23 @@ int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_va
 		for (auto &b : in_buffer){
 		c = b;
 		if(c==EOS){
-//			auto f = fut.get(); //wait for next thread(s) to finish
-			cout << "EOS received" << endl;
+			out_buffer.append(EOS);
+			cout << "EOS sent by buffers to code" << endl;
+			{
+				lock_guard<mutex> lock(mutex_next);
+				out_bufferQueue.push(out_buffer);
+			}
+			cv_next.notify_one();
+			auto v=fut.get();
 			return 1;			//exit to main thread
 		}
-		out_buffer.push_back(codeMap.getCode(c));
+		out_buffer.append(codeMap.getCode(c));
 		}
+	{
+	lock_guard<mutex> lock(mutex_next);
+	out_bufferQueue.push(out_buffer);
+	}
+	cv_next.notify_one();
 	}
 	return -1; //never reached because of while(true)
 }
@@ -188,7 +239,7 @@ void encode_to_file(const string& infile_name, const string &outfile_name, CodeM
 
 	ifstream infile;
 	infile.open(infile_name);
-	future<int> fut = thread_pool->addJob( [&bufferQueue,&m, &cv, &codeMap] () -> int {return buffers_to_codes(std::ref(bufferQueue),m,cv,codeMap);});
+	future<int> fut = thread_pool->addJob( [&bufferQueue,&m, &cv, &codeMap, &outfile_name] () -> int {return buffers_to_codes(std::ref(bufferQueue),m,cv,codeMap, std::ref(outfile_name));});
 	while(true){
 		i=0;
 		while(i<BUFSIZE){
