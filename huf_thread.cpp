@@ -9,9 +9,10 @@
 #include "CodeMap.hpp"
 #include "MapQueue.hpp"
 #include <future>
+#include <chrono>
 
-#define BUFSIZE 512
-#define EOS '$'
+#define BUFSIZE 4096
+#define EOS '\0'
 
 using namespace std;
 
@@ -30,7 +31,6 @@ int merge_maps_work(mutex &m, MapQueue &maps){
 		}
 		toCompute--;
 		maps.push(submap2);
-		cout << "to compute: " << toCompute << endl;
 	}
 	return 1;
 }
@@ -59,9 +59,7 @@ void merge_maps(OccurrenceMap &final, MapQueue& maps){
 		}
 		maps.pop();
 	}
-	cout << "maps merged" << endl;
-	//cout << "FINAL: " << endl;
-	print_map(final);
+	return;
 }
 
 int occurrences_work(const string& infile_name, OccurrenceMap& local_map, int from, int to){
@@ -84,15 +82,11 @@ void find_occurrences(const string &infile_name,MapQueue &maps, OccurrenceMap &w
 	utimer t1("conta occorrenze");
     auto size = std::filesystem::file_size(infile_name);
 	int nw = thread_pool->getWorkersNumber();
-	//cout << "size: " << size << endl;
 	int delta = size/nw;
 	vector<future<int>> int_futures;
-	//cout << "delta: " << delta << endl;
 	for (int k=0; k<nw;k++){
 		int from = k*delta;
 		int to = (k == (nw-1) ? size : (k+1)*delta);
-		//cout << "from: " << from << endl;
-		//cout << "to: " << to << endl;
 		OccurrenceMap *thread_map = new OccurrenceMap();
 		maps.push(thread_map);
 		auto f = thread_pool->addJob([&,thread_map,from,to]()-> int {
@@ -166,10 +160,8 @@ int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_va
 	
 	while (true){
 		{
-			cout << "waiting..." << endl;
 			unique_lock<mutex> lock(m);
-			cv.wait(lock, [&,in_bufferQueue] {return !in_bufferQueue.empty();}); 
-			cout << "done waiting" << endl;
+			cv.wait(lock, [&] {return !in_bufferQueue.empty();});
 			in_buffer = in_bufferQueue.front();
 			in_bufferQueue.pop();
 		}
@@ -191,15 +183,13 @@ void encode_to_file(const string& infile_name, const string &outfile_name, CodeM
 	vector<char> buffer;
 	char c;
 	int i=0;
-	long unsigned int f=0;
 	mutex m;
 	condition_variable cv;
-	auto filesize = filesystem::file_size(infile_name);
 
 	ifstream infile;
 	infile.open(infile_name);
 	future<int> fut = thread_pool->addJob( [&bufferQueue,&m, &cv, &codeMap] () -> int {return buffers_to_codes(std::ref(bufferQueue),m,cv,codeMap);});
-	while(f<filesize){
+	while(true){
 		i=0;
 		while(i<BUFSIZE){
 			if(infile.get(c)){
@@ -209,19 +199,20 @@ void encode_to_file(const string& infile_name, const string &outfile_name, CodeM
 			else{
 				buffer.push_back(EOS);//send EOS
 				cout << "EOS sent" << endl;
+				{
+				lock_guard<mutex> lock(m);
 				bufferQueue.push(buffer);
+				}
+				cv.notify_one();
 				auto v = fut.get();
 				return;
 			}
 		}
-	f+=i;
 	{
 		lock_guard<mutex> lock(m);
 		bufferQueue.push(buffer);
-		cout << "bufferQueue size:" << bufferQueue.size() << endl;
 	}
 	cv.notify_one();
-	//cout << "notified" << endl;
 	buffer.clear();
 	}
 }
