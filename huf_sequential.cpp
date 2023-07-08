@@ -4,6 +4,7 @@
 #include <queue>
 #include "utimer.cpp"
 #include <cstring>
+#include <filesystem>
 
 using namespace std;
 #define SPECIAL_CHAR '$' //non-leaf nodes
@@ -113,25 +114,24 @@ void encode_to_file(const string& infile_name, const string &outfile_name, unord
 	uint64_t bits = 0;
 	char c;
 	int i=0;
-	string byte_str;
-	bool first=true;
-	string::iterator iter;
 	int loops=0;
-	int processed=0;
-	while(infile.get(c)){
-		if(first || iter == byte_str.end()){
+	uintmax_t f=0;
+	auto filesize = filesystem::file_size(infile_name);
+	infile.get(c);
+	string byte_str = codeMap[c];
+	auto iter = byte_str.begin();
+	while(f<filesize){
+		if(iter == byte_str.end()){
+			infile.get(c);
 			byte_str = codeMap[c];
-			cout << "processed:" << processed << endl;
 			iter = byte_str.begin();
-			processed=0;
+			f++;
 		}
-		first=false;
 		while(i<64 && iter != byte_str.end()){
 			if( *iter == '1' ) {
 				bits |= 1 << (63-i);
 			}
 			iter++;
-			processed++;
 			i++;
 		}
 		if (i==64){
@@ -183,7 +183,7 @@ aggiungere controllo carattere speciale
 */
 {
     if (argc < 2){
-        cout << "Please provide arguments! ";
+        cout << "Usage is [input txt file] [output binary file name]";
         return EXIT_FAILURE;
     }
     string infile_name = (argv[1]);
