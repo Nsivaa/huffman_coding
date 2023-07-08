@@ -1,12 +1,4 @@
-DNDFLAGS= -pthread -O3 -Wall -g -I ./headers -std=c++17 -lstdc++
-DFLAGS= -pthread -O3 -Wall -g -I ./headers -std=c++17 -lstdc++
-
-DEBUG?= 1
-ifeq (($DEBUG), 1)
-	CPPFLAGS= $(DFLAGS)
-else
-	CPPFLAGS= $(DNDFLAGS)
-endif
+CPPFLAGS= -pthread -O3 -Wall -Wno-unused-variable -g -I ./headers -std=c++17 -lstdc++
 
 all: huf_thread
 	make clean

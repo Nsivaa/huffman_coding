@@ -9,7 +9,7 @@
 #include "CodeMap.hpp"
 #include "MapQueue.hpp"
 #include <future>
-#include <chrono>
+#include <cstring>
 
 #define BUFSIZE 4096
 #define EOS '\0'
@@ -149,10 +149,8 @@ int bytes_to_bits(queue<string> &bytesQueue, mutex &m, condition_variable &cv, c
 	int i=0;
 	{
 		unique_lock<mutex> lock(m);
-		cout << "waiting..." << endl;
 		cv.wait(lock, [&] {return !bytesQueue.empty();});
-		cout << "done waiting..." << endl;
-		byte_str = bytesQueue.front();	
+		byte_str = bytesQueue.front();
 		bytesQueue.pop();
 	}
 	auto iter = byte_str.begin();
@@ -161,7 +159,6 @@ int bytes_to_bits(queue<string> &bytesQueue, mutex &m, condition_variable &cv, c
 			if( *iter == '1' ) bits |= 1 << (63-i);
 
 			else if (*iter == EOS) {
-				cout << "Final EOS received" << endl;
 				outfile.write(reinterpret_cast<const char *>(&bits), sizeof(bits));
 				outfile.close();
 				return 1;
@@ -194,40 +191,57 @@ int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_va
 	queue<string> out_bufferQueue;
 	string out_buffer;
 	vector<char> in_buffer;
+	int i=0;
 
 	//to be sent to next pipeline stage
 	mutex mutex_next;
 	condition_variable cv_next; 
 
+	{
+		unique_lock<mutex> lock(m);
+		cv.wait(lock, [&] {return !in_bufferQueue.empty();});
+		in_buffer = in_bufferQueue.front();
+		in_bufferQueue.pop();
+	}
+	auto iter = in_buffer.begin();
+
 	future<int> fut;
 	fut = thread_pool->addJob( [&out_bufferQueue,&mutex_next,&cv_next,&outfile_name] () -> int {return bytes_to_bits(std::ref(out_bufferQueue), mutex_next, cv_next, std::ref(outfile_name));});
 	while (true){
-		{
-			unique_lock<mutex> lock(m);
-			cv.wait(lock, [&] {return !in_bufferQueue.empty();});
-			in_buffer = in_bufferQueue.front();
-			in_bufferQueue.pop();
+		while (iter != in_buffer.end() && out_buffer.size() < BUFSIZE){
+			c = *iter;
+			if(c==EOS){
+				out_buffer.append(1,EOS);
+				{
+					lock_guard<mutex> lock(mutex_next);
+					out_bufferQueue.push(out_buffer);
+				}
+				cv_next.notify_one();
+				auto v=fut.get();
+				return 1;			//exit to main thread
+			}
+		out_buffer.append(codeMap.getCode(c));
+		iter++;
 		}
-		for (auto &b : in_buffer){
-		c = b;
-		if(c==EOS){
-			out_buffer.append(1,EOS);
-			cout << "EOS sent by buffers to code" << endl;
+
+		if(iter == in_buffer.end()){
+			{
+				unique_lock<mutex> lock(m);
+				cv.wait(lock, [&] {return !in_bufferQueue.empty();});
+				in_buffer = in_bufferQueue.front();
+				in_bufferQueue.pop();
+				iter = in_buffer.begin();
+			}
+		}
+		if(out_buffer.size() >= BUFSIZE ){
 			{
 				lock_guard<mutex> lock(mutex_next);
 				out_bufferQueue.push(out_buffer);
 			}
 			cv_next.notify_one();
-			auto v=fut.get();
-			return 1;			//exit to main thread
+			out_buffer.clear();
+			//i=0;
 		}
-		out_buffer.append(codeMap.getCode(c));
-		}
-	{
-	lock_guard<mutex> lock(mutex_next);
-	out_bufferQueue.push(out_buffer);
-	}
-	cv_next.notify_one();
 	}
 	return -1; //never reached because of while(true)
 }
@@ -253,7 +267,6 @@ void encode_to_file(const string& infile_name, const string &outfile_name, CodeM
 			}
 			else{
 				buffer.push_back(EOS);//send EOS
-				cout << "EOS sent" << endl;
 				{
 				lock_guard<mutex> lock(m);
 				bufferQueue.push(buffer);
@@ -276,7 +289,7 @@ void compress(const string &infile_name, const string &outfile_name){
     priority_queue<HufNode*,vector<HufNode*>,Compare> pQueue;
     CodeMap *char_to_code_map = new CodeMap();
 	MapQueue maps;
-	OccurrenceMap *words =  new OccurrenceMap();
+	OccurrenceMap *words = new OccurrenceMap();
 	find_occurrences(infile_name,maps,*words);
 	HufNode* huffmanTree;
 	{
@@ -284,26 +297,18 @@ void compress(const string &infile_name, const string &outfile_name){
 	map_to_queue(*words,pQueue);
 	}
 
-   
-   // print_queue(pQueue);
 	{
 	utimer t6("generate tree");
     huffmanTree = generateTree(pQueue);
     }
 
-	//print_tree(huffmanTree,"");
 	{
 	utimer t7("generate char to code");
     generate_char_to_code_map(*char_to_code_map, huffmanTree, "");
     }
 
-	print_map(*char_to_code_map);
-
 	{
 	utimer t8("print to file");
-  /*  while(infile >> c){
-        outfile << (char_to_code_map->getCode(c));
-    }*/
 	encode_to_file(infile_name,outfile_name,*char_to_code_map);
 	}
 }
@@ -313,8 +318,10 @@ int main(int argc, char* argv[])
 aggiungere controllo carattere speciale
 */
 {
-    if (argc < 3){
-        cout << "Please provide arguments! ";
+	cout << argc << endl;
+    if (argc < 3 || strcmp(argv[1],"-h")==0 || strcmp(argv[1], "--help")==0 ){
+        cout << "Usage is: [file to compress] [compressed file name] [nw](optional)" << endl;
+		cout << "If [nw] is omitted, the maximum nw allowed by the system will be used" << endl;
         return EXIT_FAILURE;
     }
     int nw = (argc > 3 ? atoi(argv[3]) : 0);   // par degree
