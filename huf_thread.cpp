@@ -149,14 +149,15 @@ int bytes_to_bits(queue<string> &bytesQueue, mutex &m, condition_variable &cv, c
 	int i=0;
 	{
 		unique_lock<mutex> lock(m);
+		cout << "waiting..." << endl;
 		cv.wait(lock, [&] {return !bytesQueue.empty();});
-		byte_str = bytesQueue.front();
+		cout << "done waiting..." << endl;
+		byte_str = bytesQueue.front();	
 		bytesQueue.pop();
 	}
 	auto iter = byte_str.begin();
 	while(true){
 		while (i < 64 && iter != byte_str.end()){
-
 			if( *iter == '1' ) bits |= 1 << (63-i);
 
 			else if (*iter == EOS) {
@@ -174,9 +175,10 @@ int bytes_to_bits(queue<string> &bytesQueue, mutex &m, condition_variable &cv, c
 				cv.wait(lock, [&] {return !bytesQueue.empty();});
 				byte_str = bytesQueue.front();
 				bytesQueue.pop();
+				iter = byte_str.begin();
 			}
 		}
-		if (i == 8){
+		if (i == 64){
 		outfile.write(reinterpret_cast<const char *>(&bits), sizeof(bits));
 		bits=0;
 		i=0;
@@ -187,6 +189,7 @@ int bytes_to_bits(queue<string> &bytesQueue, mutex &m, condition_variable &cv, c
 }
 
 int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_variable &cv, CodeMap& codeMap, const string &outfile_name){
+	//PREALLOCATE VECTORS
 	char c;
 	queue<string> out_bufferQueue;
 	string out_buffer;
@@ -197,7 +200,7 @@ int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_va
 	condition_variable cv_next; 
 
 	future<int> fut;
-	fut = thread_pool->addJob( [&out_bufferQueue,&m,&cv,&outfile_name] () -> int {return bytes_to_bits(std::ref(out_bufferQueue), m, cv, std::ref(outfile_name));});
+	fut = thread_pool->addJob( [&out_bufferQueue,&mutex_next,&cv_next,&outfile_name] () -> int {return bytes_to_bits(std::ref(out_bufferQueue), mutex_next, cv_next, std::ref(outfile_name));});
 	while (true){
 		{
 			unique_lock<mutex> lock(m);
@@ -208,7 +211,7 @@ int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_va
 		for (auto &b : in_buffer){
 		c = b;
 		if(c==EOS){
-			out_buffer.append(EOS);
+			out_buffer.append(1,EOS);
 			cout << "EOS sent by buffers to code" << endl;
 			{
 				lock_guard<mutex> lock(mutex_next);
@@ -230,6 +233,7 @@ int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_va
 }
 
 void encode_to_file(const string& infile_name, const string &outfile_name, CodeMap& codeMap){
+	//REPLACE VECCTOR PUSH Bck with pre-allocated
 	queue<vector<char>> bufferQueue;
 	vector<char> buffer;
 	char c;
@@ -293,7 +297,7 @@ void compress(const string &infile_name, const string &outfile_name){
     generate_char_to_code_map(*char_to_code_map, huffmanTree, "");
     }
 
-	//print_map(*char_to_code_map);
+	print_map(*char_to_code_map);
 
 	{
 	utimer t8("print to file");
