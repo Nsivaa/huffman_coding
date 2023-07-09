@@ -5,60 +5,13 @@
 #include "utimer.cpp"
 #include <cstring>
 #include <filesystem>
+#include "utils.hpp"
 #include <ff/ff.hpp>
 #include <ff/parallel_for.hpp>
 
 using namespace std;
 using namespace ff;
 
-#define SPECIAL_CHAR '$' //non-leaf nodes
-
-/*unordered_map& operator+=(const unordered_map& M){
-
-      this->m_iNumber += rhs.m_iNumber;
-      return *this;
-}*/
-
-class HufNode{
-public:
-    HufNode(char c, int f) : character(c), frequency(f), left(NULL), right(NULL){};
-
-friend ostream& operator<<(ostream& os, const HufNode* node) {
-        return os << "character: " << node->character << endl << "frequency: " << node->frequency<< endl;
-    }
-
-    char character;
-    int frequency;
-    HufNode* left;
-    HufNode* right;
-};
-
-class Compare {
-    public:
-    bool operator()(HufNode* a,
-                    HufNode* b)
-    {
-        return a->frequency > b->frequency;
-    }
-};
-
-template<typename T, typename V>
-void print_map(unordered_map<T,V> &words ){
-        cout << "MAP" << endl << endl << endl;
-    for (typename unordered_map<T, V>::iterator i = words.begin();
-         i != words.end(); i++){
-            cout << i->first << " " << i->second << " " << endl;
-         }
-        return;
-}
-
-void print_queue(priority_queue<HufNode*,vector<HufNode*>, Compare> pq){ //we pass pq by value so that pop() doesn't actually delete
-    cout << "QUEUE" << endl;
-    while (! pq.empty() ) {
-    cout << pq.top() << "\n";
-    pq.pop();
-    }
-}
 
 void map_to_queue(unordered_map<char,int> words, priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
     for (unordered_map<char,int>::iterator i = words.begin();
@@ -68,15 +21,6 @@ void map_to_queue(unordered_map<char,int> words, priority_queue<HufNode*,vector<
     }
 }
 
-void print_tree(HufNode* node, string code){
-    if(node){
-        if(node->character != SPECIAL_CHAR){
-            cout << node->character << ":" << code << endl;
-        }
-        print_tree(node->left,code + "0");
-        print_tree(node->right,code + "1");
-    }
-}
 
 void generate_char_to_code_map(unordered_map<char,string> &char_code_map, HufNode* node, string code){
      if(node){
@@ -105,10 +49,20 @@ HufNode* generateTree(priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
     return pq.top();
 }
 
-void find_occurrences(const string &infile_name,unordered_map<char,int> &words){
+void find_occurrences(const string &infile_name,unordered_map<char,int> &words, int nw){
     auto size = std::filesystem::file_size(infile_name);
-	int nw= 16;
-	ParallelForReduce<unordered_map<char,int>> pf(nw,true);
+	vector <char> data (size);
+	ifstream infile;
+	infile.open(infile_name);
+	{
+		utimer t0("vector filling");
+		char c;
+		int i=0;
+		while(infile.get(c)){
+			data[i]=c;
+			i++;
+		}
+	}
 	auto ReduceF = [&](unordered_map<char,int> &m,const unordered_map<char,int> m2){
 		char c;
 		for (auto &i : m2){
@@ -116,27 +70,17 @@ void find_occurrences(const string &infile_name,unordered_map<char,int> &words){
 		m[c]+=i.second;
 		}
 	};
-	vector <char> data (size);
-	ifstream infile;
-	infile.open(infile_name);
-	{
-	utimer t0("vector filling");
-	char c;
-	int i=0;
-	while(infile.get(c)){
-	data[i]=c;
-	i++;
-	}
-	}
 	unordered_map<char,int> Wzero;
-	int chunk = size/nw;
-	pf.parallel_reduce(words,Wzero,0,size,1,0, [&] (const long i, unordered_map<char,int> &mymap) {
-		char c;
-		c=data[i];
-		mymap[c]++;
-	}, ReduceF,nw);
+	{
+		utimer t1("counting occurrences");
+		ParallelForReduce<unordered_map<char,int>> pf(nw);
+		pf.parallel_reduce(words,Wzero,0,size,1,0, [&] (const long i, unordered_map<char,int> &mymap) {
+			char c;
+			c=data[i];
+			mymap[c]++;
+		}, ReduceF);
+	}
 	infile.close();
-	print_map(words);
 	return;
 }
 
@@ -180,21 +124,20 @@ void encode_to_file(const string& infile_name, const string &outfile_name, unord
 	return;
 }
 
-void compress(const string &infile_name, const string &outfile_name){
+void compress(const string &infile_name, const string &outfile_name, int nw){
     unordered_map<char,int> words;
     priority_queue<HufNode*,vector<HufNode*>,Compare> pQueue;
     unordered_map<char,string> char_to_code_map;
 	HufNode* huffmanTree;
 	{
-	utimer t1("conta occorrenze");
-    find_occurrences(infile_name,words);
+    find_occurrences(infile_name,words,nw);
     }
 	{
 	utimer t3("map_to_queue");
 	map_to_queue(words,pQueue);
 	}
-	
-	
+
+
 	{
 	utimer t4("generate tree");
     huffmanTree = generateTree(pQueue);
@@ -203,26 +146,23 @@ void compress(const string &infile_name, const string &outfile_name){
 	utimer t5("char_to_code_map");
 	generate_char_to_code_map(char_to_code_map, huffmanTree, "");
     }
-	
+
 	{
 	utimer t6("encode to file");
 	encode_to_file(infile_name, outfile_name, char_to_code_map);
 	}
 }
-int main(int argc, char* argv[])
-/*
-aggiungere controllo carattere speciale
-*/
-{
+int main(int argc, char* argv[]){
     if (argc < 2){
-        cout << "Usage is [input txt file] [output binary file name]";
+        cout << "Usage is [input txt file] [output binary file name] [nw]";
         return EXIT_FAILURE;
     }
     string infile_name = (argv[1]);
     string outfile_name = (argv[2]);
+	int nw = atoi(argv[3]);
     {
         utimer t0("whole program");
-        compress(infile_name, outfile_name);
+        compress(infile_name, outfile_name,nw);
     }
 
     return 0;

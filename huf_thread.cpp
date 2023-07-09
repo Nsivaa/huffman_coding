@@ -78,30 +78,25 @@ int occurrences_work(const string& infile_name, OccurrenceMap& local_map, int fr
 
 void find_occurrences(const string &infile_name,MapQueue &maps, OccurrenceMap &words){
 //master worker computes file chunks according to size and assigns work to workers
-	{
-	utimer t1("conta occorrenze");
+
     auto size = std::filesystem::file_size(infile_name);
 	int nw = thread_pool->getWorkersNumber();
 	int delta = size/nw;
 	vector<future<int>> int_futures;
-	for (int k=0; k<nw;k++){
+	for	(int k=0; k<nw;k++){
 		int from = k*delta;
 		int to = (k == (nw-1) ? size : (k+1)*delta);
 		OccurrenceMap *thread_map = new OccurrenceMap();
 		maps.push(thread_map);
 		auto f = thread_pool->addJob([&,thread_map,from,to]()-> int {
-			 return occurrences_work(std::ref(infile_name),std::ref(*thread_map),std::move(from), std::move(to));
-			});
-			int_futures.push_back(std::move(f));
+			return occurrences_work(std::ref(infile_name),std::ref(*thread_map),std::move(from), std::move(to));
+		});
+		int_futures.push_back(std::move(f));
 	}
 	for (auto &f : int_futures){
 		int val = f.get();
 	}
-	}
-	{
-	utimer t3("Maps merge");
 	merge_maps(words,maps);
-	}
 	return;
 }
 
@@ -289,8 +284,12 @@ void compress(const string &infile_name, const string &outfile_name){
     priority_queue<HufNode*,vector<HufNode*>,Compare> pQueue;
     CodeMap *char_to_code_map = new CodeMap();
 	MapQueue maps;
+
 	OccurrenceMap *words = new OccurrenceMap();
+	{
+	utimer t1("count occurrences");
 	find_occurrences(infile_name,maps,*words);
+	}
 	HufNode* huffmanTree;
 	{
 		utimer t5("map to queue ");
@@ -318,7 +317,6 @@ int main(int argc, char* argv[])
 aggiungere controllo carattere speciale
 */
 {
-	cout << argc << endl;
     if (argc < 3 || strcmp(argv[1],"-h")==0 || strcmp(argv[1], "--help")==0 ){
         cout << "Usage is: [file to compress] [compressed file name] [nw](optional)" << endl;
 		cout << "If [nw] is omitted, the maximum nw allowed by the system will be used" << endl;

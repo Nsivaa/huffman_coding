@@ -6,6 +6,8 @@
 #include <iostream>
 #define SPECIAL_CHAR '$'
 
+using namespace std;
+
 class HufNode{
 public:
     HufNode(char c, int f) : character(c), frequency(f), left(NULL), right(NULL){};
@@ -29,6 +31,15 @@ class Compare {
     }
 };
 
+template<typename T, typename V>
+void print_map(unordered_map<T,V> &words ){
+        cout << "MAP" << endl << endl << endl;
+    for (typename unordered_map<T, V>::iterator i = words.begin();
+         i != words.end(); i++){
+            cout << i->first << " " << i->second << " " << endl;
+         }
+        return;
+}
 
 void print_map(OccurrenceMap &words){
         cout << "MAP" << endl << endl << endl;
