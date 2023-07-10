@@ -9,9 +9,10 @@
 #include <ff/ff.hpp>
 #include <ff/parallel_for.hpp>
 
+#define BUFSIZE 1024
+
 using namespace std;
 using namespace ff;
-
 
 void map_to_queue(unordered_map<char,int> words, priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
     for (unordered_map<char,int>::iterator i = words.begin();
@@ -84,7 +85,36 @@ void find_occurrences(const string &infile_name,unordered_map<char,int> &words, 
 	return;
 }
 
+struct PipeTask{
+	const string infile_name;
+	const string outfile_name;
+	unordered_map<char,string> codeMap;
+	vector<char> file_buffer;
+	string code_buffer;
+};
 
+struct Source : ff_node_t<PipeTask>{
+	PipeTask * svc(PipeTask *t){
+		char c;
+		int i=0;
+		ifstream infile;
+		infile.open(t->infile_name);
+		while(true){
+			while(i<BUFSIZE){
+				if(infile.get(c)){
+					t->file_buffer.push_back(c);
+					i++;
+				}
+				else{
+					return (EOS);
+				}
+			}
+			ff_send_out(t);
+			i=0;
+			t->file_buffer.clear();
+		}
+	}
+};
 
 void encode_to_file(const string& infile_name, const string &outfile_name, unordered_map<char,string> &codeMap){
 	ifstream infile;

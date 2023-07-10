@@ -12,7 +12,7 @@
 #include <cstring>
 
 #define BUFSIZE 4096
-#define EOS '\0'
+#define THREAD_EOS '\0'
 
 using namespace std;
 
@@ -153,7 +153,7 @@ int bytes_to_bits(queue<string> &bytesQueue, mutex &m, condition_variable &cv, c
 		while (i < 64 && iter != byte_str.end()){
 			if( *iter == '1' ) bits |= 1 << (63-i);
 
-			else if (*iter == EOS) {
+			else if (*iter == THREAD_EOS) {
 				outfile.write(reinterpret_cast<const char *>(&bits), sizeof(bits));
 				outfile.close();
 				return 1;
@@ -205,8 +205,8 @@ int buffers_to_codes(queue<vector<char>> &in_bufferQueue, mutex &m, condition_va
 	while (true){
 		while (iter != in_buffer.end() && out_buffer.size() < BUFSIZE){
 			c = *iter;
-			if(c==EOS){
-				out_buffer.append(1,EOS);
+			if(c==THREAD_EOS){
+				out_buffer.append(1,THREAD_EOS);
 				{
 					lock_guard<mutex> lock(mutex_next);
 					out_bufferQueue.push(out_buffer);
@@ -261,7 +261,7 @@ void encode_to_file(const string& infile_name, const string &outfile_name, CodeM
 				i++;
 			}
 			else{
-				buffer.push_back(EOS);//send EOS
+				buffer.push_back(THREAD_EOS);//send THREAD_EOS
 				{
 				lock_guard<mutex> lock(m);
 				bufferQueue.push(buffer);
