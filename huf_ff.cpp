@@ -86,36 +86,34 @@ void find_occurrences(const string &infile_name,unordered_map<char,int> &words, 
 }
 
 struct PipeTask{
-	PipeTask(const string &in, const string &out, unordered_map<char,string> &cMap) :
-			infile_name(in), outfile_name(out), codeMap(cMap) {}
-	const string infile_name;
-	const string outfile_name;
+	PipeTask(unordered_map<char,string> &cMap, ofstream &stream) :
+	codeMap(cMap), outfile(stream) {}
 	unordered_map<char,string> codeMap;
 	char file_character;
 	string huf_code;
+	ofstream &outfile;
 	inline static uint64_t bits ;
 	inline static short int written_bits;
+	inline static unsigned long int pos;
 };
 
 struct Source : ff_node_t<PipeTask>{
 
-	Source(const string &in, const string &out, unordered_map<char,string> &cMap) :
-			infile_name(in), outfile_name(out), codeMap(cMap) {}
+	Source(ifstream &in, ofstream &out, unordered_map<char,string> &cMap) :
+			infile(in), outfile(out), codeMap(cMap) {}
 
 	PipeTask * svc(PipeTask *){
 		char c;
-		ifstream infile;
-		infile.open(infile_name);
 		while(infile.get(c)){
-			PipeTask *t2 = new PipeTask(infile_name, outfile_name, codeMap);
+			PipeTask *t2 = new PipeTask(codeMap, outfile);
 			t2->file_character = c;
 			ff_send_out(t2);
 		}
 	return (EOS);
 	}
 
-	string infile_name;
-	string outfile_name;
+	ifstream& infile;
+	ofstream& outfile;
 	unordered_map<char,string> codeMap;
 };
 
@@ -130,18 +128,16 @@ struct FirstStage: ff_node_t <PipeTask>{
 
 struct LastStage : ff_node_t <PipeTask>{
 	PipeTask * svc(PipeTask *t){
-		ofstream outfile;
 		for(auto &c : t->huf_code){
-			if(t->written_bits == sizeof(t->bits)){
-				outfile.open(t->outfile_name, ios::binary);
-				outfile.write(reinterpret_cast<const char*>(&t->bits), sizeof(t->bits));
-				outfile.close();
+			if(t->written_bits == 64){
+				t->outfile.seekp(t->pos,ios::beg);
+				t->outfile.write(reinterpret_cast<const char*>(&t->bits), sizeof(t->bits));
 				t->bits = 0;
 				t->written_bits=0;
+				t->pos += sizeof(t->bits);
 			}
-			if(c == '1') t->bits |= 1 << (sizeof(t->bits) - (t->written_bits) );
-
-		t->written_bits++;
+			if(c == '1') t->bits |= 1 << (63 - t->written_bits );
+			t->written_bits++;
 		}
 	return (GO_ON);
 	}
@@ -172,12 +168,17 @@ void compress(const string &infile_name, const string &outfile_name, int nw){
 
 	{
 	utimer t6("encode to file pipeline");
-		Source s1(infile_name, outfile_name, char_to_code_map);
+		ifstream infile;
+		infile.open(infile_name);
+		ofstream outfile;
+		outfile.open(outfile_name,ios::binary);
+		Source s1(infile, outfile, char_to_code_map);
 		FirstStage s2;
 		LastStage s3;
 		ff_Pipe<PipeTask> encode_pipeline(s1,s2,s3);
 		encode_pipeline.run_and_wait_end();
 		encode_pipeline.ffStats(cout);
+		outfile.close();
 	}
 }
 
