@@ -99,14 +99,24 @@ struct PipeTask{
 
 struct Source : ff_node_t<PipeTask>{
 
-	PipeTask * svc(PipeTask *t){
+	Source(const string &in, const string &out, unordered_map<char,string> &cMap) :
+			infile_name(in), outfile_name(out), codeMap(cMap) {}
+
+	PipeTask * svc(PipeTask *){
+		char c;
 		ifstream infile;
-		infile.open(t->infile_name);
-		while(infile.get(t->file_character)){
-			ff_send_out(t);
+		infile.open(infile_name);
+		while(infile.get(c)){
+			PipeTask *t2 = new PipeTask(infile_name, outfile_name, codeMap);
+			t2->file_character = c;
+			ff_send_out(t2);
 		}
 	return (EOS);
 	}
+
+	string infile_name;
+	string outfile_name;
+	unordered_map<char,string> codeMap;
 };
 
 struct FirstStage: ff_node_t <PipeTask>{
@@ -162,15 +172,15 @@ void compress(const string &infile_name, const string &outfile_name, int nw){
 
 	{
 	utimer t6("encode to file pipeline");
-		PipeTask task(infile_name, outfile_name, char_to_code_map);
-		Source<PipeTask> s1(task);
+		Source s1(infile_name, outfile_name, char_to_code_map);
 		FirstStage s2;
 		LastStage s3;
-		ff_Pipe encode_pipeline(s1,s2,s3);
+		ff_Pipe<PipeTask> encode_pipeline(s1,s2,s3);
 		encode_pipeline.run_and_wait_end();
 		encode_pipeline.ffStats(cout);
 	}
 }
+
 int main(int argc, char* argv[]){
     if (argc < 4){
         cout << "Usage is [input txt file] [output binary file name] [nw]" << endl;
