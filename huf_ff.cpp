@@ -9,7 +9,7 @@
 #include <ff/ff.hpp>
 #include <ff/parallel_for.hpp>
 
-#define BUFSIZE 1024
+#define BUFSIZE 2048
 
 using namespace std;
 using namespace ff;
@@ -86,13 +86,13 @@ void find_occurrences(const string &infile_name,unordered_map<char,int> &words, 
 }
 
 struct PipeTask{
-	PipeTask(unordered_map<char,string> &cMap, ofstream &stream) :
-	codeMap(cMap), outfile(stream) {}
+	PipeTask(unordered_map<char,string> &cMap, ofstream &stream, vector<char> &buf) :
+	codeMap(cMap), outfile(stream), file_buffer(buf) {}
 	unordered_map<char,string> codeMap;
-	char file_character;
-	string huf_code;
 	ofstream &outfile;
-	inline static uint64_t bits ;
+	vector<char> file_buffer;
+	string huf_codes;
+	inline static uint64_t bits;
 	inline static short int written_bits;
 	inline static unsigned long int pos;
 };
@@ -104,13 +104,22 @@ struct Source : ff_node_t<PipeTask>{
 
 	PipeTask * svc(PipeTask *){
 		char c;
+		int i=0;
+		vector<char> buffer;
 		while(infile.get(c)){
-			PipeTask *t2 = new PipeTask(codeMap, outfile);
-			t2->file_character = c;
-			ff_send_out(t2);
+			while(infile.get(c) && i<BUFSIZE){
+			buffer.push_back(c);
+			i++;
+			}
+		if(i==BUFSIZE){
+				PipeTask *t2 = new PipeTask(codeMap, outfile,buffer);
+				buffer.clear();//useless?
+				ff_send_out(t2);
+				i=0;
 		}
-	return (EOS);
 	}
+	return (EOS);
+}
 
 	ifstream& infile;
 	ofstream& outfile;
@@ -119,7 +128,9 @@ struct Source : ff_node_t<PipeTask>{
 
 struct FirstStage: ff_node_t <PipeTask>{
 	PipeTask * svc(PipeTask *t){
-		t->huf_code = t->codeMap[t->file_character];
+		for (auto &i : t->file_buffer){
+			t->huf_codes.append(t->codeMap[i]); //pre-allocate huf_codes?
+		}
 		return t;
 	}
 };
@@ -128,7 +139,7 @@ struct FirstStage: ff_node_t <PipeTask>{
 
 struct LastStage : ff_node_t <PipeTask>{
 	PipeTask * svc(PipeTask *t){
-		for(auto &c : t->huf_code){
+		for(auto &c : t->huf_codes){
 			if(t->written_bits == 64){
 				t->outfile.seekp(t->pos,ios::beg);
 				t->outfile.write(reinterpret_cast<const char*>(&t->bits), sizeof(t->bits));
