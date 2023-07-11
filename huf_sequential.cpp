@@ -125,7 +125,7 @@ int main(int argc, char* argv[])
 aggiungere controllo carattere speciale
 */
 {
-    if (argc < 2){
+    if (argc < 3){
         cout << "Usage is [input txt file] [output binary file name]";
         return EXIT_FAILURE;
     }
