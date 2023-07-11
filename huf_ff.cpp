@@ -9,9 +9,10 @@
 #include <ff/ff.hpp>
 #include <ff/parallel_for.hpp>
 
+#define BUFSIZE 2048
+
 using namespace std;
 using namespace ff;
-
 
 void map_to_queue(unordered_map<char,int> words, priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
     for (unordered_map<char,int>::iterator i = words.begin();
@@ -84,45 +85,74 @@ void find_occurrences(const string &infile_name,unordered_map<char,int> &words, 
 	return;
 }
 
+struct PipeTask{
+	PipeTask(unordered_map<char,string> &cMap, ofstream &stream, vector<char> &buf) :
+	codeMap(cMap), outfile(stream), file_buffer(buf) {}
+	unordered_map<char,string> codeMap;
+	ofstream &outfile;
+	vector<char> file_buffer;
+	string huf_codes;
+	inline static uint64_t bits;
+	inline static short int written_bits;
+	inline static unsigned long int pos;
+};
 
+struct Source : ff_node_t<PipeTask>{
 
-void encode_to_file(const string& infile_name, const string &outfile_name, unordered_map<char,string> &codeMap){
-	ifstream infile;
-	infile.open(infile_name);
-	ofstream outfile;
-	outfile.open(outfile_name, ios::binary);
-	uint64_t bits = 0;
-	char c;
-	int i=0;
-	uintmax_t f=0;
-	auto filesize = filesystem::file_size(infile_name);
-	infile.get(c);
-	string byte_str = codeMap[c];
-	auto iter = byte_str.begin();
-	while(f<filesize){
-		if(iter == byte_str.end()){
-			infile.get(c);
-			byte_str = codeMap[c];
-			iter = byte_str.begin();
-			f++;
-		}
-		while(i<64 && iter != byte_str.end()){
-			if( *iter == '1' ) {
-				bits |= 1 << (63-i);
-			}
-			iter++;
+	Source(ifstream &in, ofstream &out, unordered_map<char,string> &cMap) :
+			infile(in), outfile(out), codeMap(cMap) {}
+
+	PipeTask * svc(PipeTask *){
+		char c;
+		int i=0;
+		vector<char> buffer;
+		while(infile.get(c)){
+			while(infile.get(c) && i<BUFSIZE){
+			buffer.push_back(c);
 			i++;
-		}
-		if (i==64){
-			outfile.write(reinterpret_cast<const char *>(&bits), sizeof(bits));
-			bits=0;
-			i=0;
+			}
+		if(i==BUFSIZE){
+				PipeTask *t2 = new PipeTask(codeMap, outfile,buffer);
+				buffer.clear();//useless?
+				ff_send_out(t2);
+				i=0;
 		}
 	}
-	outfile.write(reinterpret_cast<const char*> (&bits), sizeof(bits)); //print the last bits that may be left in the buffer
-	outfile.close();
-	return;
+	return (EOS);
 }
+
+	ifstream& infile;
+	ofstream& outfile;
+	unordered_map<char,string> codeMap;
+};
+
+struct FirstStage: ff_node_t <PipeTask>{
+	PipeTask * svc(PipeTask *t){
+		for (auto &i : t->file_buffer){
+			t->huf_codes.append(t->codeMap[i]); //pre-allocate huf_codes?
+		}
+		return t;
+	}
+};
+
+//TODO: IMPLEMENT FEEDBACK TO WRITE LAST NON-FULL BUFFER?
+
+struct LastStage : ff_node_t <PipeTask>{
+	PipeTask * svc(PipeTask *t){
+		for(auto &c : t->huf_codes){
+			if(t->written_bits == 64){
+				t->outfile.seekp(t->pos,ios::beg);
+				t->outfile.write(reinterpret_cast<const char*>(&t->bits), sizeof(t->bits));
+				t->bits = 0;
+				t->written_bits=0;
+				t->pos += sizeof(t->bits);
+			}
+			if(c == '1') t->bits |= 1 << (63 - t->written_bits );
+			t->written_bits++;
+		}
+	return (GO_ON);
+	}
+};
 
 void compress(const string &infile_name, const string &outfile_name, int nw){
     unordered_map<char,int> words;
@@ -148,13 +178,24 @@ void compress(const string &infile_name, const string &outfile_name, int nw){
     }
 
 	{
-	utimer t6("encode to file");
-	encode_to_file(infile_name, outfile_name, char_to_code_map);
+	utimer t6("encode to file pipeline");
+		ifstream infile;
+		infile.open(infile_name);
+		ofstream outfile;
+		outfile.open(outfile_name,ios::binary);
+		Source s1(infile, outfile, char_to_code_map);
+		FirstStage s2;
+		LastStage s3;
+		ff_Pipe<PipeTask> encode_pipeline(s1,s2,s3);
+		encode_pipeline.run_and_wait_end();
+		encode_pipeline.ffStats(cout);
+		outfile.close();
 	}
 }
+
 int main(int argc, char* argv[]){
-    if (argc < 2){
-        cout << "Usage is [input txt file] [output binary file name] [nw]";
+    if (argc < 4){
+        cout << "Usage is [input txt file] [output binary file name] [nw]" << endl;
         return EXIT_FAILURE;
     }
     string infile_name = (argv[1]);
