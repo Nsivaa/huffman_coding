@@ -189,7 +189,6 @@ void compress(const string &infile_name, const string &outfile_name, int nw){
 		LastStage s3;
 		ff_Pipe<PipeTask> encode_pipeline(s1,s2,s3);
 		encode_pipeline.run_and_wait_end();
-		encode_pipeline.ffStats(cout);
 		outfile.close();
 	}
 }
