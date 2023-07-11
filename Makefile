@@ -1,7 +1,7 @@
-CPPFLAGS= -pthread -O3 -DTRACE_FASTFLOW -Wall -Wno-unused-variable -g -std=c++17 -lstdc++
+CPPFLAGS= -pthread -O3 -Wall -Wno-unused-variable -g -std=c++17 -lstdc++
 TARGETS= huf_thread huf_sequential huf_ff
 THREADHEADERS= ./headers
-FFHEADERS= ./fastflow
+FFHEADERS= ./fastflow -I usr/local/fastflow
 
 all: $(TARGETS)
 	make clean
