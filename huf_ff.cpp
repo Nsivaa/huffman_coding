@@ -106,17 +106,18 @@ struct Source : ff_node_t<PipeTask>{
 		char c;
 		int i=0;
 		vector<char> buffer;
-		while(infile.get(c)){
-			while(infile.get(c) && i<BUFSIZE){
-			buffer.push_back(c);
-			i++;
+		while(true){
+			i=0;
+			while(i<BUFSIZE){
+				if(infile.get(c)){
+					buffer.push_back(c);
+					i++;
+				}
+				else return (EOS);
 			}
-		if(i==BUFSIZE){
-				PipeTask *t2 = new PipeTask(codeMap, outfile,buffer);
-				buffer.clear();//useless?
-				ff_send_out(t2);
-				i=0;
-		}
+			PipeTask *t2 = new PipeTask(codeMap, outfile,buffer);
+			buffer.clear();//useless?
+			ff_send_out(t2);
 	}
 	return (EOS);
 }
