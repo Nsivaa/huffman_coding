@@ -9,7 +9,7 @@
 #include <ff/ff.hpp>
 #include <ff/parallel_for.hpp>
 
-#define BUFSIZE 2048
+#define BUFSIZE 8192
 
 using namespace std;
 using namespace ff;
@@ -92,9 +92,11 @@ struct PipeTask{
 	ofstream &outfile;
 	vector<char> file_buffer;
 	string huf_codes;
-	inline static uint64_t bits;
-	inline static short int written_bits;
-	inline static unsigned long int pos;
+	queue<uint64_t> full_bits;
+	inline static uint64_t bits_buffer =0;
+	inline static short int written_bits=0;
+	inline static unsigned long int pos=0;
+	inline static int written=0;
 };
 
 struct Source : ff_node_t<PipeTask>{
@@ -138,21 +140,35 @@ struct FirstStage: ff_node_t <PipeTask>{
 
 //TODO: IMPLEMENT FEEDBACK TO WRITE LAST NON-FULL BUFFER?
 
-struct LastStage : ff_node_t <PipeTask>{
+struct SecondStage : ff_node_t <PipeTask>{
 	PipeTask * svc(PipeTask *t){
 		for(auto &c : t->huf_codes){
-			if(t->written_bits == 64){
-				t->outfile.seekp(t->pos,ios::beg);
-				t->outfile.write(reinterpret_cast<const char*>(&t->bits), sizeof(t->bits));
-				t->bits = 0;
-				t->written_bits=0;
-				t->pos += sizeof(t->bits);
-			}
-			if(c == '1') t->bits |= 1 << (63 - t->written_bits );
+			if(c == '1') t->bits_buffer |= 1 << (63 - t->written_bits );
 			t->written_bits++;
+			if(t->written_bits == 64){
+				t->full_bits.push(t->bits_buffer);
+				t->bits_buffer = 0;
+				t->written_bits=0;
+			}
 		}
+		return t;
+	}
+};
+
+struct LastStage : ff_node_t <PipeTask>{
+	PipeTask * svc(PipeTask *t){
+		int written=0;
+		t->outfile.seekp(t->pos,ios::beg);
+		while(!t->full_bits.empty()){
+			uint64_t data = t->full_bits.front();
+			t->full_bits.pop();
+			t->outfile.write(reinterpret_cast<const char*>(&data), sizeof(data));
+			written++;
+		}
+	t->pos += written * sizeof(uint64_t);
 	return (GO_ON);
 	}
+
 };
 
 void compress(const string &infile_name, const string &outfile_name, int nw){
@@ -186,9 +202,11 @@ void compress(const string &infile_name, const string &outfile_name, int nw){
 		outfile.open(outfile_name,ios::binary);
 		Source s1(infile, outfile, char_to_code_map);
 		FirstStage s2;
-		LastStage s3;
-		ff_Pipe<PipeTask> encode_pipeline(s1,s2,s3);
+		SecondStage s3;
+		LastStage s4;
+		ff_Pipe<PipeTask> encode_pipeline(s1,s2,s3,s4);
 		encode_pipeline.run_and_wait_end();
+		encode_pipeline.ffStats(cout);
 		outfile.close();
 	}
 }
