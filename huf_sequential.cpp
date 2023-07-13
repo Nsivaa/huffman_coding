@@ -72,7 +72,7 @@ HufNode* generateTree(priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
     return pq.top(); //last remaining node is the root of the huffman tree
 }
 
-void encode_to_file(string data, const string &outfile_name, unordered_map<char,string> &codeMap){
+void encode_to_file(string &data, const string &outfile_name, unordered_map<char,string> &codeMap){
 	/*
  	* Opens the input txt file and translates every character into its corresponding huffman code.
 	* We use a 64 bit variable initialized to 0 as buffer and perform a bitwise shift whenever we need to write a '1'.
@@ -90,6 +90,7 @@ void encode_to_file(string data, const string &outfile_name, unordered_map<char,
 	c=data[0];
 	string byte_str = codeMap[c];
 	auto iter = byte_str.begin();
+cout << data.size() << endl;
 
 	while(f<data.size()){ 
 		if(iter == byte_str.end()){
@@ -131,6 +132,13 @@ void compress(const string &infile_name, const string &outfile_name){
 		data.push_back(c);
 	}
 	infile.close();
+	string data2;
+	infile.open(infile_name);
+	char ch;
+	while(infile.get(ch)){
+		data2.append(codeMap[ch]);
+	}
+	infile.close();
 	{
  utimer t0("whole program");
 	{
@@ -150,13 +158,6 @@ void compress(const string &infile_name, const string &outfile_name){
 	utimer t5("codeMap");
 	generate_codeMap(codeMap, huffmanTree, "");
     }
-	string data2;
-	infile.open(infile_name);
-	char ch;
-	while(infile.get(ch)){
-		data2.append(codeMap[ch]);
-	}
-	infile.close();
 	{
 	utimer t6("encode to file");
 	encode_to_file(data2,outfile_name, codeMap);
