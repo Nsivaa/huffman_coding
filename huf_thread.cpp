@@ -367,12 +367,11 @@ void compress(const string &infile_name, const string &outfile_name){
 int main(int argc, char* argv[])
 {
     if (argc < 3 || atoi(argv[3]) == 1 || strcmp(argv[1],"-h")==0 || strcmp(argv[1], "--help")==0 ){
-        cout << "Usage is: [file to compress] [compressed file name] [nw>1](optional)" << endl;
-		cout << "If [nw] is omitted, the maximum nw allowed by the system will be used" << endl;
+        cout << "Usage is: [file to compress] [compressed file name] [nw>1]" << endl;
         cout << "Nw (if specified) has to be at least 2 in order for the pipeline to work" << endl;
         return EXIT_FAILURE;
     }
-    int nw = (argc > 3 ? atoi(argv[3]) : 0);   // par degree
+    int nw=atoi(argv[3]);   // par degree
 	thread_pool->start(nw);
     string infile_name = (argv[1]);
     string outfile_name = (argv[2]);
