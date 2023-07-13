@@ -128,7 +128,7 @@ void compress(const string &infile_name, const string &outfile_name){
     unordered_map<char,string> codeMap;
 	HufNode* huffmanTree;
 	{
-	utimer t1("conta occorrenze");
+	utimer t1("count occurrences");
     find_occurrences(infile_name,occurrenceMap);
     }
 	{
