@@ -72,7 +72,7 @@ HufNode* generateTree(priority_queue<HufNode*,vector<HufNode*>, Compare> &pq){
     return pq.top(); //last remaining node is the root of the huffman tree
 }
 
-void encode_to_file(const string& infile_name, const string &outfile_name, unordered_map<char,string> &codeMap){
+void encode_to_file(string data, const string &outfile_name, unordered_map<char,string> &codeMap){
 	/*
  	* Opens the input txt file and translates every character into its corresponding huffman code.
 	* We use a 64 bit variable initialized to 0 as buffer and perform a bitwise shift whenever we need to write a '1'.
@@ -83,20 +83,17 @@ void encode_to_file(const string& infile_name, const string &outfile_name, unord
 	char c;
 	int i=0;
 	uintmax_t f=0;
-	auto filesize = filesystem::file_size(infile_name);
+	vector<uint64_t> output;
 
-	ifstream infile;
-	infile.open(infile_name);
-	ofstream outfile;
-	outfile.open(outfile_name, ios::binary);
+	
 
-	infile.get(c);
+	c=data[0];
 	string byte_str = codeMap[c];
 	auto iter = byte_str.begin();
 
-	while(f<filesize){ 
+	while(f<data.size()){ 
 		if(iter == byte_str.end()){
-			infile.get(c);
+			c = data[f];
 			byte_str = codeMap[c];
 			iter = byte_str.begin();
 			f++;
@@ -109,13 +106,12 @@ void encode_to_file(const string& infile_name, const string &outfile_name, unord
 			i++;
 		}
 		if (i==64){
-			outfile.write(reinterpret_cast<const char *>(&bits), sizeof(bits));
+			output.push_back(bits);
 			bits=0;
 			i=0;
 		}
 	}
-	outfile.write(reinterpret_cast<const char*> (&bits), sizeof(bits)); //print the last bits that may be left in the buffer.
-	outfile.close();
+	output.push_back(bits);
 	return;
 }
 
@@ -134,6 +130,7 @@ void compress(const string &infile_name, const string &outfile_name){
 	while(infile.get(c)){
 		data.push_back(c);
 	}
+	infile.close();
 	{
  utimer t0("whole program");
 	{
@@ -153,9 +150,16 @@ void compress(const string &infile_name, const string &outfile_name){
 	utimer t5("codeMap");
 	generate_codeMap(codeMap, huffmanTree, "");
     }
+	string data2;
+	infile.open(infile_name);
+	char ch;
+	while(infile.get(ch)){
+		data2.append(codeMap[ch]);
+	}
+	infile.close();
 	{
 	utimer t6("encode to file");
-	encode_to_file(infile_name, outfile_name, codeMap);
+	encode_to_file(data2,outfile_name, codeMap);
 	}
 	}
 }
