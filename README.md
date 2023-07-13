@@ -1,9 +1,7 @@
 # huffman_coding
 
-## This is the repository for the final project of Parallel and Distributed Systems: Paradigms and Models.
+##  To compile, just run the Makefile with "make".
  
- To compile, just run the Makefile with "make".
-
 - Usage of huf_sequential: [input txt file] [output .bin file]
 
 - Usage of huf_thread: [input txt file] [output .bin file] (optional[nw])
