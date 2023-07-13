@@ -10,17 +10,17 @@
 
 using namespace std;
 
-void find_occurrences(const string &infile_name, unordered_map<char,int>& occurrenceMap){
-	/* 
+void find_occurrences(vector<char> &data, unordered_map<char,int> &occurrenceMap){	/* 
 	 * fills the unordered map with characters from the file and their occurrences
 	*/
     char c;
-    ifstream infile;
-    infile.open(infile_name);
-    while(infile.get(c)){ // >> extracts single characters and puts them in string
-        occurrenceMap[c]++; // [] operator does all the checks for us (if key is already present etc)
-    }
-    infile.close();
+	
+	
+	for (auto &i : data){
+		occurrenceMap[i]++;
+
+	}
+
     return;
 }
 
@@ -127,10 +127,20 @@ void compress(const string &infile_name, const string &outfile_name){
     priority_queue<HufNode*,vector<HufNode*>,Compare> pQueue;
     unordered_map<char,string> codeMap;
 	HufNode* huffmanTree;
+	ifstream infile;
+	infile.open(infile_name);
+	vector<char> data;
+	char c;
+	while(infile.get(c)){
+		data.push_back(c);
+	}
+	{
+ utimer t0("whole program");
 	{
 	utimer t1("count occurrences");
-    find_occurrences(infile_name,occurrenceMap);
+    find_occurrences(data,occurrenceMap);
     }
+
 	{
 	utimer t3("map_to_queue");
 	map_to_pQueue(occurrenceMap,pQueue);
@@ -147,6 +157,7 @@ void compress(const string &infile_name, const string &outfile_name){
 	utimer t6("encode to file");
 	encode_to_file(infile_name, outfile_name, codeMap);
 	}
+	}
 }
 
 
@@ -158,10 +169,10 @@ int main(int argc, char* argv[])
     }
     string infile_name = (argv[1]);
     string outfile_name = (argv[2]);
-    {
-        utimer t0("whole program");
+    
+        
         compress(infile_name, outfile_name);
-    }
+   
 
     return 0;
 }
