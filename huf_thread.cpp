@@ -368,7 +368,7 @@ int main(int argc, char* argv[])
 {
     if (argc < 4 || atoi(argv[3]) == 1 || strcmp(argv[1],"-h")==0 || strcmp(argv[1], "--help")==0 ){
         cout << "Usage is: [file to compress] [compressed file name] [nw>1]" << endl;
-        cout << "Nw (if specified) has to be at least 2 in order for the pipeline to work" << endl;
+        cout << "Nw has to be at least 2 in order for the pipeline to work" << endl;
         return EXIT_FAILURE;
     }
     int nw=atoi(argv[3]);   // par degree
