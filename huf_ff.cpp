@@ -155,7 +155,7 @@ struct Source : ff_node_t<PipeTask>{
 	unordered_map<char,string> codeMap;
 };
 
-struct FirstStage: ff_node_t <PipeTask>{
+struct CharsToCodesStage: ff_node_t <PipeTask>{
     /*
  	* Simply translates chars into huf codes
 	*/
@@ -167,7 +167,7 @@ struct FirstStage: ff_node_t <PipeTask>{
 	}
 };
 
-struct SecondStage : ff_node_t <PipeTask>{
+struct CodesToBitsStage : ff_node_t <PipeTask>{
     /*
  	* Receives huf codes from the previous stage (via a single string) and translates
  	* its content into 64-bit buffers. They are stored in a queue which is sent to the
@@ -187,7 +187,7 @@ struct SecondStage : ff_node_t <PipeTask>{
 	}
 };
 
-struct LastStage : ff_node_t <PipeTask>{
+struct BitsToFileStage : ff_node_t <PipeTask>{
     /*
  	* Last Stage, simply pops the binary buffers from the queue and writes them to the file.
 	*/
@@ -246,9 +246,9 @@ void compress(const string &infile_name, const string &outfile_name, int nw){
 		ofstream outfile;
 		outfile.open(outfile_name,ios::binary);
 		Source s1(infile, outfile, char_to_code_map);
-		FirstStage s2;
-		SecondStage s3;
-		LastStage s4;
+		CharsToCodesStage s2;
+		CodesToBitsStage s3;
+		BitsToFileStage s4;
 		ff_Pipe<PipeTask> encode_pipeline(s1,s2,s3,s4);
 		encode_pipeline.run_and_wait_end();
 		encode_pipeline.ffStats(cout);
